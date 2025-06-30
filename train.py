@@ -1,13 +1,10 @@
-#-*-coding:utf-8-*-
-# date:2023-12-07
-# Author: yinyipeng
-## function: train
 
 import os
 import argparse
 
 from torch.optim import lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import random_split
 import sys
 sys.path.append('components/hand_keypoints/')
 from utils.model_utils import *
@@ -27,15 +24,19 @@ import torch.nn as nn
 
 
 
-def eval_images(ops, model_, dataloader):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def eval_images(model_, dataloader, writer, epoch):
     model_.eval()
 
-    print("\n[INFO] Starting evaluation on 6 images...\n")
+    print(f"Epoch: {epoch}. Begin to eval!")
+    mse = 0
     with torch.no_grad():
-        for i, (imgs_, pts_) in enumerate(dataloader):
+        for (imgs_, pts_) in tqdm(dataloader):
+            imgs_ = imgs_.cuda()  
+            pts_ = pts_.cuda()  
             output = model_(imgs_.float())  
-            mse = calc_mes(output.cpu().detach().numpy(), pts_.cpu().float().numpy())  
+            mse += calc_mes(output.cpu().detach().numpy(), pts_.cpu().float().numpy())  
+    
+    writer.add_scalar('Eval mean loss', mse/len(dataloader), global_step=epoch)
 
 
 def calc_mes(predicted, target):
@@ -88,19 +89,34 @@ def trainer(ops,f_log):
         dataset = LoadImagesAndLabels(ops=ops, img_size=ops.img_size,flag_agu=ops.flag_agu,fix_res = ops.fix_res,vis = False)
         print("handpose done")
 
-        print('len train datasets : %s'%(dataset.__len__()))
+    
+        total_size = len(dataset)
+        train_size = int(0.8 * total_size)
+        val_size = total_size - train_size
+
+        generator = torch.Generator().manual_seed(ops.seed)
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=generator)
+        
+        print('len train datasets : %s, len eval datasets : %s'%(train_dataset.__len__(), val_dataset.__len__()))
         # Dataloader
-        dataloader = DataLoader(dataset,
+        train_dataloader = DataLoader(train_dataset,
                                 batch_size=ops.batch_size,
                                 num_workers=ops.num_workers,
                                 shuffle=True,
                                 pin_memory=False,
                                 drop_last = True)
+        eval_dataloader = DataLoader(val_dataset,
+                            batch_size=ops.batch_size,
+                            num_workers=ops.num_workers,
+                            shuffle=True,
+                            pin_memory=False,
+                            drop_last = True)
+        
         
         optimizer  = torch.optim.Adam(model_.parameters(), lr=ops.init_lr, betas=(0.9, 0.99), weight_decay=1e-6)
-        scheduler = lr_scheduler.StepLR(optimizer, 2, gamma=0.1)
+        # scheduler = lr_scheduler.StepLR(optimizer, 2, gamma=0.1)
         
-        if os.access(ops.fintune_model, os.F_OK):# checkpoint
+        if os.access(ops.fintune_model, os.F_OK):
             chkpt = torch.load(ops.fintune_model, map_location='cpu')
             print(model_.load_state_dict(chkpt))
             print('load fintune model : {}'.format(ops.fintune_model))
@@ -108,23 +124,17 @@ def trainer(ops,f_log):
         model_ = model_.to(device)
         print('/**********************************************/')
         
-        if False:
-            eval_images(ops, model_, dataloader)
-        
-        else:
+    
+        if True:
             if ops.loss_define != 'wing_loss':
                 criterion = nn.MSELoss(reduce=True, reduction='mean')
 
             step = 0
-            idx = 0
-
             best_loss = np.inf
             loss_mean = 0. 
             loss_idx = 0.
             flag_change_lr_cnt = 0 
             init_lr = ops.init_lr 
-
-            epochs_loss_dict = {}
 
             for epoch in range(0, ops.epochs):
                 if ops.log_flag:
@@ -137,24 +147,19 @@ def trainer(ops,f_log):
                         best_loss = (loss_mean/loss_idx)
                     else:
                         flag_change_lr_cnt += 1
-
                         if flag_change_lr_cnt > 50:
                             init_lr = init_lr*ops.lr_decay
                             set_learning_rate(optimizer, init_lr)
                             flag_change_lr_cnt = 0
-
-                loss_mean = 0.  
-                loss_idx = 0.  
+ 
                 mse_list = []
-                for i, (imgs_, pts_) in tqdm(enumerate(dataloader)):
+                for (imgs_, pts_) in tqdm(train_dataloader):
                     if use_cuda:
                         imgs_ = imgs_.cuda()  
                         pts_ = pts_.cuda()  
 
                     output = model_(imgs_.float())  
                     mse = calc_mes(output.cpu().detach().numpy(), pts_.cpu().float().numpy())  
-                    
-                    writer.add_scalar('MSE', mse, global_step=epoch * len(dataloader) + i)
 
                     mse_list.append(mse)
                     
@@ -162,29 +167,22 @@ def trainer(ops,f_log):
                         loss = got_total_wing_loss(output, pts_.float())
                     else:
                         loss = criterion(output, pts_.float())
-                    loss_mean += loss.item()
-                    loss_idx += 1.
-                    writer.add_scalar('mean_loss', loss_mean/loss_idx, global_step=epoch * len(dataloader) + i)
-
-                    loc_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-                    print('  %s - %s - epoch [%s/%s] (%s/%s):' % (loc_time,ops.model,epoch,ops.epochs,i,int(dataset.__len__()/ops.batch_size)),\
-                    'Mean Loss : %.6f - Loss: %.6f'%(loss_mean/loss_idx,loss.item()),\
-                    ' lr : %.8f'%init_lr, ' bs :',ops.batch_size,\
-                    ' img_size: %s x %s'%(ops.img_size[0],ops.img_size[1]))
                     
                     loss.backward()
                     optimizer.step()
                     optimizer.zero_grad()
                     step += 1
+
+                avg_mse = np.mean(mse_list)
+                print("Train_eopch{}_avg_mse {}".format(epoch, avg_mse))
+                writer.add_scalar('Train mean loss', avg_mse, global_step=epoch)
                 
-                # if epoch%2==0:
-                #     scheduler.step()
-                
-                avg_mes = np.mean(mse_list)
-                print("{}_avg_mes {}".format(epoch, avg_mes))
                 if (epoch+1)%2==0:
-                    torch.save(model_.state_dict(), ops.model_exp + '{}-size-{}-model_epoch-{}-avg_mse-{}.pth'.format(ops.model, ops.img_size[0], epoch, avg_mes))
-            
+                    # Eval
+                    eval_images(model_, eval_dataloader, writer, epoch)
+                    # Save
+                    torch.save(model_.state_dict(), ops.model_exp + '{}-size-{}-model_epoch-{}-avg_mse-{}.pth'.format(ops.model, ops.img_size[0], epoch, avg_mse))
+
             writer.close()
     except Exception as e:
         print('Exception : ',e) 
@@ -220,10 +218,10 @@ if __name__ == "__main__":
     parser.add_argument('--log_flag', type=bool, default=False, help='log flag')  # 是否保存训练 log
 
     #--------------------------------------------------------------------------
-    args = parser.parse_args()  # 解析添加参数
+    args = parser.parse_args()  
     logger.info(args)
     #--------------------------------------------------------------------------
-    mkdir_(args.model_exp, flag_rm=args.clear_model_exp)  # 建立文件夹model_exp
+    mkdir_(args.model_exp, flag_rm=args.clear_model_exp)  
     loc_time = time.localtime()
     args.model_exp = args.model_exp + '/' + time.strftime("%Y-%m-%d_%H-%M-%S", loc_time)+'/'
     mkdir_(args.model_exp, flag_rm=args.clear_model_exp)

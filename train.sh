@@ -1,1 +1,1 @@
-python train.py --model resnet_50 --train_path /deltadisk/huangjiayi/dataset/handpose_datasets_v1-2021-01-31/handpose_datasets_v1  --batch_size 16 --init_lr 1e-3
+python train.py --model resnet_50 --train_path /deltadisk/huangjiayi/dataset/handpose_datasets_v1  --batch_size 64 --init_lr 1e-3
