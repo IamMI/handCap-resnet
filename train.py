@@ -198,7 +198,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_exp', type=str, default='./model_exp', help='model_exp')  # 模型输出文件夹
     parser.add_argument('--model', type=str, default='resnet_50', help = 'model : resnet_34,resnet_50,resnet_101,squeezenet1_0,squeezenet1_1,shufflenetv2,shufflenet,mobilenetv2')  # 模型类型
     parser.add_argument('--num_classes', type=int, default=42, help = 'num_classes') #  landmarks 个数*2
-    parser.add_argument('--GPUS', type=str, default='0', help='GPUS') # GPU选择
+    parser.add_argument('--GPUS', type=str, default='1', help='GPUS') # GPU选择
     parser.add_argument('--train_path', type=str,default = "F:/BaiduNetdiskDownload/handpose_datasets_v1-2021-01-31/handpose_datasets_v1/",help = 'datasets path')  # 训练集标注信息
     parser.add_argument('--pretrained', type=bool, default=False, help = 'imageNet_Pretrain')
     parser.add_argument('--fintune_model', type=str, default='resnet_50-size-256-loss-0.0642.pth', help = 'fintune_model')  # fintune model
