@@ -1,0 +1,10 @@
+log/*
+.vscode/*
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+model_exp/*
+materials/*
