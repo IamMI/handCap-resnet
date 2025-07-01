@@ -1,0 +1,1 @@
+python infer.py --model resnet_50 --train_path /deltadisk/huangjiayi/dataset/handpose_datasets_v1  --fintune_model model_exp/2025-06-30_23-53-38/resnet_50-size-256-model_epoch-99-avg_mse-0.0066986544989049435.pth

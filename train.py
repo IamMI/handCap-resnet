@@ -21,8 +21,28 @@ import time
 import json
 from loguru import logger
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
-
+def eval_demo(model_, dataloader):
+    model_.eval()
+    imgs_list, output_list = [], []
+    with torch.no_grad():
+        for idx, (imgs_, pts_) in tqdm(enumerate(dataloader)):
+            imgs_ = imgs_.cuda()  
+            pts_ = pts_.cuda()  
+            output = model_(imgs_.float()) 
+            
+            imgs_list.append(imgs_.cpu())
+            output_list.append(output.cpu())
+            
+            if idx >= 6:
+                break
+    # Draw 
+    for (img, output) in zip(imgs_list, output_list):
+        print("hello")
+    
+    
+        
 
 def eval_images(model_, dataloader, writer, epoch):
     model_.eval()
